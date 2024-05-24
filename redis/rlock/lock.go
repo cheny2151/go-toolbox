@@ -88,6 +88,8 @@ func (lk *BaseLock) AddListener(key string, lst UnlockListener) {
 	lk.actionChan <- UnlockListenerAction{key: key, lst: lst, action: 1}
 }
 
+// tryLock0 通用加锁逻辑，从lockArgs函数中获取加锁脚本所需参数
+// 使用chan进行阻塞等待，收到redis解锁广播或者超时后将继续唤醒
 func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Duration, argsFunc lockArgs) (context.Context, bool, error) {
 	endTime := time.Now().UnixMilli() + waitTime.Milliseconds()
 	lockId, ctx := labelCtx(ctx)
@@ -122,6 +124,7 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 	return ctx, locked, nil
 }
 
+// unlock0 通用解锁逻辑，从unlockArgs函数中获取解锁脚本所需参数
 func (lk *BaseLock) unlock0(ctx context.Context, argsFunc unlockArgs) error {
 	value := ctx.Value(lockIdKey)
 	if value == nil {
