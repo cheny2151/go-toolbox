@@ -97,8 +97,8 @@ func TestLock(t *testing.T) {
 
 func getRdb() redis.UniversalClient {
 	rdb := redis.NewFailoverClient(&redis.FailoverOptions{
-		MasterName:    "",
-		SentinelAddrs: []string{},
+		MasterName:    "chatbot_redis_test_001",
+		SentinelAddrs: []string{"shopline-fs-test-group001-sentinel.inshopline.com:20005", "shopline-fs-test-group002-sentinel.inshopline.com:20005", "shopline-fs-test-group003-sentinel.inshopline.com:20005"},
 		DB:            15,
 	})
 	err := rdb.Ping(context.Background()).Err()
