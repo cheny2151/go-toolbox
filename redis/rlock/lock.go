@@ -24,6 +24,7 @@ type RLock interface {
 type LockSupport interface {
 	buildPath(hash, path string) string
 	eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
+	expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 	subUnlock(channel string)
 	addListener(key string, lst unlockListener)
 	tryLock0(ctx context.Context, waitTime, leaseTime time.Duration, argsFunc lockArgs) (context.Context, bool, error)
@@ -51,6 +52,7 @@ type BaseLock struct {
 	unlockListeners map[string]*UnlockListeners
 	closed          bool
 	actionChan      chan UnlockListenerAction
+	leaseHolder     *LeaseHolder
 }
 
 func (lk *BaseLock) initListener() {
@@ -82,6 +84,10 @@ func (lk *BaseLock) buildPath(hash, key string) string {
 
 func (lk *BaseLock) eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
 	return lk.rdb.Eval(ctx, script, keys, args)
+}
+
+func (lk *BaseLock) expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
+	return lk.rdb.Expire(ctx, key, expiration)
 }
 
 func (lk *BaseLock) subUnlock(channel string) {
@@ -138,7 +144,6 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 			})
 			select {
 			case <-time.After(dur):
-				fmt.Println("timeout")
 			case <-done:
 			}
 		} else {
@@ -194,6 +199,8 @@ func NewLockFactory(rdb redis.UniversalClient) LockFactory {
 		rdb:    rdb,
 		closed: false,
 	}
+	leaseHolder := newLeaseHolder(baseLock)
+	baseLock.leaseHolder = leaseHolder
 	baseLock.initListener()
 	baseLock.subUnlock(lockChannel + "*")
 	return &LockCreator{rdb: rdb, lockSupport: baseLock}
