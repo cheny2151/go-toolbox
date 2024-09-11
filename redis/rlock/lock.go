@@ -12,6 +12,7 @@ import (
 const (
 	lockChannel   = "TOOLBOX:LOCK_CHANNEL:"
 	lockIdKey     = "lock_id"
+	useLeaseKey   = "use_lease"
 	countdownFlag = 0
 	unlockFlag    = 1
 )
@@ -35,7 +36,7 @@ type LockSupport interface {
 type unlockListener func(channel, msg string)
 
 type lockArgs func(waitTime, leaseTime time.Duration, lockId string) (path, lua string, keys []string, argv []any)
-type unlockArgs func(lockId string) (lua string, keys []string, argv []any)
+type unlockArgs func(lockId string) (path, lua string, keys []string, argv []any)
 
 type UnlockListeners struct {
 	listeners []unlockListener
@@ -124,7 +125,15 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 	}
 	endTime := time.Now().UnixMilli() + waitTime.Milliseconds()
 	lockId, ctx := labelCtx(ctx)
-	path, lockLua, keys, argv := argsFunc(waitTime, leaseTime, lockId)
+
+	firstLeaseTime := leaseTime
+	useLease := false
+	if leaseTime < 0 || leaseTime.Milliseconds() > leaseThreshold {
+		useLease = true
+		firstLeaseTime = time.Millisecond * time.Duration(duration)
+	}
+
+	path, lockLua, keys, argv := argsFunc(waitTime, firstLeaseTime, lockId)
 	locked := false
 	for true {
 		_, err := lk.eval(ctx, lockLua, keys, argv...).Result()
@@ -151,6 +160,12 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 		}
 	}
 
+	if locked && useLease {
+		lk.leaseHolder.addLease(path, time.Now().UnixMilli()+leaseTime.Milliseconds())
+	}
+
+	ctx = context.WithValue(ctx, useLeaseKey, useLease)
+
 	return ctx, locked, nil
 }
 
@@ -161,7 +176,7 @@ func (lk *BaseLock) unlock0(ctx context.Context, argsFunc unlockArgs) error {
 		return errors.New("can not find lockId in context, please use tryLock returned context")
 	}
 	lockId := value.(string)
-	unlockLua, keys, argv := argsFunc(lockId)
+	path, unlockLua, keys, argv := argsFunc(lockId)
 	result, err := lk.eval(ctx, unlockLua, keys, argv...).Result()
 	if err != nil {
 		return err
@@ -174,6 +189,10 @@ func (lk *BaseLock) unlock0(ctx context.Context, argsFunc unlockArgs) error {
 	if val == countdownFlag {
 		// countdown
 	} else if val == unlockFlag {
+		useLease := ctx.Value(useLeaseKey)
+		if useLease != nil && useLease.(bool) {
+			lk.leaseHolder.removeLease(path)
+		}
 		// 解锁成功
 		fmt.Println("unlock")
 	}

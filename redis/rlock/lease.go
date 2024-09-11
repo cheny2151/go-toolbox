@@ -47,6 +47,7 @@ type LeaseHolder struct {
 	leases      map[string]*Lease
 	once        sync.Once
 	addChan     chan *Lease
+	rmChan      chan string
 	closed      bool
 }
 
@@ -56,6 +57,7 @@ func newLeaseHolder(lockSupport LockSupport) *LeaseHolder {
 		leases:      make(map[string]*Lease, 32),
 		once:        sync.Once{},
 		addChan:     make(chan *Lease, 100),
+		rmChan:      make(chan string, 100),
 		closed:      false,
 	}
 }
@@ -71,6 +73,13 @@ func (lh *LeaseHolder) addLease(key string, expire int64) {
 	}
 }
 
+func (lh *LeaseHolder) removeLease(key string) {
+	if lh.closed {
+		return
+	}
+	lh.rmChan <- key
+}
+
 func (lh *LeaseHolder) initScheduled() {
 	lh.once.Do(func() {
 		go func() {
@@ -79,6 +88,8 @@ func (lh *LeaseHolder) initScheduled() {
 				select {
 				case add := <-lh.addChan:
 					lh.leases[add.key] = add
+				case rmKey := <-lh.rmChan:
+					delete(lh.leases, rmKey)
 				case <-time.After(taskCycle * time.Millisecond):
 					lh.refreshLease(ctx)
 				}
@@ -113,5 +124,7 @@ func (lh *LeaseHolder) refreshLease(ctx context.Context) {
 
 func (lh *LeaseHolder) close() {
 	lh.closed = true
+	clear(lh.leases)
 	close(lh.addChan)
+	close(lh.rmChan)
 }
