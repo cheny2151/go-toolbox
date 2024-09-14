@@ -123,6 +123,7 @@ func (receiver *StructVisitor) Visit(node ast.Node) ast.Visitor {
 			// type
 			hasKeywordComment := false
 			if genDecl.Doc != nil && genDecl.Doc.List != nil {
+				// 遍历注释
 				for _, comment := range genDecl.Doc.List {
 					if strings.Contains(comment.Text, receiver.keyword) {
 						hasKeywordComment = true
@@ -133,10 +134,12 @@ func (receiver *StructVisitor) Visit(node ast.Node) ast.Visitor {
 				specs := genDecl.Specs
 				for _, spec := range specs {
 					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+						// type
 						name := typeSpec.Name.Name
 						proxyTarget := TargetStruct{
 							Name: name,
 						}
+						// collect target methods sign
 						methodSigns := make([]MethodSignature, 0)
 						if interfaceType, ok := typeSpec.Type.(*ast.InterfaceType); ok {
 							methods := interfaceType.Methods
