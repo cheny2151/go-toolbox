@@ -41,6 +41,7 @@ func GenByStructComment(inputFile, outputFile, keyword, temp string, scanMethods
 	}
 }
 
+// Scan 扫描go文件，目标为出现了{keyword}注释的struct，并且只扫描目标方法集scanMethods
 func Scan(inputFile, keyword string, scanMethods []string) *StructVisitor {
 	fileSet := token.NewFileSet()
 	f, err := parser.ParseFile(fileSet, inputFile, nil, parser.ParseComments)
