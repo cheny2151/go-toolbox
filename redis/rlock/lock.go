@@ -12,6 +12,7 @@ import (
 const (
 	lockChannel   = "TOOLBOX:LOCK_CHANNEL:"
 	lockIdKey     = "lock_id"
+	useLeaseKey   = "use_lease"
 	countdownFlag = 0
 	unlockFlag    = 1
 )
@@ -24,6 +25,7 @@ type RLock interface {
 type LockSupport interface {
 	buildPath(hash, path string) string
 	eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
+	expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 	subUnlock(channel string)
 	addListener(key string, lst unlockListener)
 	tryLock0(ctx context.Context, waitTime, leaseTime time.Duration, argsFunc lockArgs) (context.Context, bool, error)
@@ -34,7 +36,7 @@ type LockSupport interface {
 type unlockListener func(channel, msg string)
 
 type lockArgs func(waitTime, leaseTime time.Duration, lockId string) (path, lua string, keys []string, argv []any)
-type unlockArgs func(lockId string) (lua string, keys []string, argv []any)
+type unlockArgs func(lockId string) (path, lua string, keys []string, argv []any)
 
 type UnlockListeners struct {
 	listeners []unlockListener
@@ -51,6 +53,7 @@ type BaseLock struct {
 	unlockListeners map[string]*UnlockListeners
 	closed          bool
 	actionChan      chan UnlockListenerAction
+	leaseHolder     *LeaseHolder
 }
 
 func (lk *BaseLock) initListener() {
@@ -82,6 +85,10 @@ func (lk *BaseLock) buildPath(hash, key string) string {
 
 func (lk *BaseLock) eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
 	return lk.rdb.Eval(ctx, script, keys, args)
+}
+
+func (lk *BaseLock) expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
+	return lk.rdb.Expire(ctx, key, expiration)
 }
 
 func (lk *BaseLock) subUnlock(channel string) {
@@ -118,7 +125,15 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 	}
 	endTime := time.Now().UnixMilli() + waitTime.Milliseconds()
 	lockId, ctx := labelCtx(ctx)
-	path, lockLua, keys, argv := argsFunc(waitTime, leaseTime, lockId)
+
+	firstLeaseTime := leaseTime
+	useLease := false
+	if leaseTime < 0 || leaseTime.Milliseconds() > leaseThreshold {
+		useLease = true
+		firstLeaseTime = time.Millisecond * time.Duration(duration)
+	}
+
+	path, lockLua, keys, argv := argsFunc(waitTime, firstLeaseTime, lockId)
 	locked := false
 	for true {
 		_, err := lk.eval(ctx, lockLua, keys, argv...).Result()
@@ -138,13 +153,18 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 			})
 			select {
 			case <-time.After(dur):
-				fmt.Println("timeout")
 			case <-done:
 			}
 		} else {
 			break
 		}
 	}
+
+	if locked && useLease {
+		lk.leaseHolder.addLease(path, time.Now().UnixMilli()+leaseTime.Milliseconds())
+	}
+
+	ctx = context.WithValue(ctx, useLeaseKey, useLease)
 
 	return ctx, locked, nil
 }
@@ -156,7 +176,7 @@ func (lk *BaseLock) unlock0(ctx context.Context, argsFunc unlockArgs) error {
 		return errors.New("can not find lockId in context, please use tryLock returned context")
 	}
 	lockId := value.(string)
-	unlockLua, keys, argv := argsFunc(lockId)
+	path, unlockLua, keys, argv := argsFunc(lockId)
 	result, err := lk.eval(ctx, unlockLua, keys, argv...).Result()
 	if err != nil {
 		return err
@@ -169,6 +189,10 @@ func (lk *BaseLock) unlock0(ctx context.Context, argsFunc unlockArgs) error {
 	if val == countdownFlag {
 		// countdown
 	} else if val == unlockFlag {
+		useLease := ctx.Value(useLeaseKey)
+		if useLease != nil && useLease.(bool) {
+			lk.leaseHolder.removeLease(path)
+		}
 		// 解锁成功
 		fmt.Println("unlock")
 	}
@@ -194,6 +218,8 @@ func NewLockFactory(rdb redis.UniversalClient) LockFactory {
 		rdb:    rdb,
 		closed: false,
 	}
+	leaseHolder := newLeaseHolder(baseLock)
+	baseLock.leaseHolder = leaseHolder
 	baseLock.initListener()
 	baseLock.subUnlock(lockChannel + "*")
 	return &LockCreator{rdb: rdb, lockSupport: baseLock}

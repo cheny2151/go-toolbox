@@ -53,7 +53,7 @@ func (rl *ReentrantLock) tryLock(ctx context.Context, waitTime, leaseTime time.D
 	return rl.tryLock0(ctx, waitTime, leaseTime, rl.lockArgs)
 }
 
-func (rl *ReentrantLock) lockArgs(waitTime, leaseTime time.Duration, lockId string) (path, lua string, keys []string, argv []any) {
+func (rl *ReentrantLock) lockArgs(_, leaseTime time.Duration, lockId string) (path, lua string, keys []string, argv []any) {
 	path = rl.path
 	lua = reentrantLockLua
 	keys = []string{path}
@@ -65,7 +65,8 @@ func (rl *ReentrantLock) unlock(ctx context.Context) error {
 	return rl.unlock0(ctx, rl.unlockArgs)
 }
 
-func (rl *ReentrantLock) unlockArgs(lockId string) (lua string, keys []string, argv []any) {
+func (rl *ReentrantLock) unlockArgs(lockId string) (path, lua string, keys []string, argv []any) {
+	path = rl.path
 	lua = reentrantUnlockLua
 	keys = []string{rl.path, lockChannel + rl.path}
 	argv = []any{rl.path, 0, lockId}

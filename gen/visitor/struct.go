@@ -14,8 +14,8 @@ import (
 	"strings"
 )
 
-func GenByStruct(inputFile, outputFile, keyword, temp string) {
-	visitor := Scan(inputFile, keyword)
+func GenByStructComment(inputFile, outputFile, keyword, temp string, scanMethods []string) {
+	visitor := Scan(inputFile, keyword, scanMethods)
 	fs, err := template.New("").Parse(temp)
 	if err != nil {
 		panic(err)
@@ -41,16 +41,18 @@ func GenByStruct(inputFile, outputFile, keyword, temp string) {
 	}
 }
 
-func Scan(inputFile, keyword string) *StructVisitor {
+// Scan 扫描go文件，目标为出现了{keyword}注释的struct，并且只扫描目标方法集scanMethods
+func Scan(inputFile, keyword string, scanMethods []string) *StructVisitor {
 	fileSet := token.NewFileSet()
 	f, err := parser.ParseFile(fileSet, inputFile, nil, parser.ParseComments)
 	if err != nil {
 		panic(err)
 	}
 	visitor := StructVisitor{
-		keyword: keyword,
-		fileSet: fileSet,
-		Targets: make([]TargetStruct, 0),
+		keyword:     keyword,
+		scanMethods: scanMethods,
+		fileSet:     fileSet,
+		Targets:     make([]TargetStruct, 0),
 	}
 	ast.Walk(&visitor, f)
 	visitor.setDependImports()
@@ -59,6 +61,7 @@ func Scan(inputFile, keyword string) *StructVisitor {
 
 type StructVisitor struct {
 	keyword       string
+	scanMethods   []string
 	fileSet       *token.FileSet
 	Pkg           string
 	Imports       []ImportInfo
@@ -67,8 +70,8 @@ type StructVisitor struct {
 }
 
 type TargetStruct struct {
-	Name   string
-	Method *MethodSignature
+	Name    string
+	Methods []MethodSignature
 }
 
 type MethodSignature struct {
@@ -119,35 +122,43 @@ func (receiver *StructVisitor) Visit(node ast.Node) ast.Visitor {
 			receiver.Imports = imports
 		} else if genDecl.Tok == token.TYPE {
 			// type
-			hasProxyComment := false
+			hasKeywordComment := false
 			if genDecl.Doc != nil && genDecl.Doc.List != nil {
+				// 遍历注释
 				for _, comment := range genDecl.Doc.List {
 					if strings.Contains(comment.Text, receiver.keyword) {
-						hasProxyComment = true
+						hasKeywordComment = true
 					}
 				}
 			}
-			if hasProxyComment {
+			if hasKeywordComment {
 				specs := genDecl.Specs
 				for _, spec := range specs {
 					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+						// type
 						name := typeSpec.Name.Name
+						proxyTarget := TargetStruct{
+							Name: name,
+						}
+						// collect target methods sign
+						methodSigns := make([]MethodSignature, 0)
 						if interfaceType, ok := typeSpec.Type.(*ast.InterfaceType); ok {
 							methods := interfaceType.Methods
 							for _, method := range methods.List {
-								if len(method.Names) == 1 && method.Names[0].Name == "Call" {
-									if funcType, ok := method.Type.(*ast.FuncType); ok {
-										methodSign := parserMethod(funcType)
-										methodSign.Name = method.Names[0].Name
-										proxyTarget := TargetStruct{
-											Name:   name,
-											Method: methodSign,
+								if len(method.Names) == 1 {
+									methodName := method.Names[0].Name
+									if slices.Contains(receiver.scanMethods, methodName) {
+										if funcType, ok := method.Type.(*ast.FuncType); ok {
+											methodSign := parserMethod(funcType)
+											methodSign.Name = method.Names[0].Name
+											methodSigns = append(methodSigns, *methodSign)
 										}
-										receiver.Targets = append(receiver.Targets, proxyTarget)
 									}
 								}
 							}
 						}
+						proxyTarget.Methods = methodSigns
+						receiver.Targets = append(receiver.Targets, proxyTarget)
 					}
 				}
 			}
@@ -160,7 +171,9 @@ func (receiver *StructVisitor) Visit(node ast.Node) ast.Visitor {
 func (receiver *StructVisitor) setDependImports() {
 	depends := make([]string, 0)
 	for _, target := range receiver.Targets {
-		depends = append(depends, target.Method.DependFlags...)
+		for _, method := range target.Methods {
+			depends = append(depends, method.DependFlags...)
+		}
 	}
 	dependImports := make([]ImportInfo, 0)
 	for _, imp := range receiver.Imports {
