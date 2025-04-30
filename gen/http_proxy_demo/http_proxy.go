@@ -34,3 +34,9 @@ func (receiver HttpProxy[T]) Call(ctx context.Context, url string, request any) 
 	_ = json.Unmarshal(bodyBytes, t)
 	return t, nil
 }
+
+// TestProxy 测试代理
+// @httpProxy
+type TestProxy interface {
+	Call(ctx context.Context, test string) (string, error)
+}
