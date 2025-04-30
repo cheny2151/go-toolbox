@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -76,16 +77,19 @@ type StructVisitor struct {
 type StructInfo struct {
 	Name          string
 	Doc           string
-	Methods       []*MethodSignature
+	TargetMethods []*MethodSignature
+	AllMethods    []*MethodSignature
+	OtherMethods  []*MethodSignature
 	DependImports []*ImportInfo
 }
 
 type MethodSignature struct {
-	Name        string
-	Doc         string
-	Params      []*ParamSignature
-	Results     []*ParamSignature
-	DependFlags []string
+	Name          string
+	Doc           string
+	Params        []*ParamSignature
+	Results       []*ParamSignature
+	DependFlags   []string
+	DependImports []*ImportInfo
 }
 
 type ParamSignature struct {
@@ -143,7 +147,9 @@ func (receiver *StructVisitor) Visit(node ast.Node) ast.Visitor {
 						}
 						if receiver.scanStruct(&proxyTarget) {
 							// collect target methods sign
-							methodSigns := make([]*MethodSignature, 0)
+							targetMethods := make([]*MethodSignature, 0)
+							allMethods := make([]*MethodSignature, 0)
+							otherMethods := make([]*MethodSignature, 0)
 							if interfaceType, ok := typeSpec.Type.(*ast.InterfaceType); ok {
 								methods := interfaceType.Methods
 								for _, method := range methods.List {
@@ -152,14 +158,19 @@ func (receiver *StructVisitor) Visit(node ast.Node) ast.Visitor {
 											methodSign := parserMethod(funcType)
 											methodSign.Doc = method.Doc.Text()
 											methodSign.Name = method.Names[0].Name
+											allMethods = append(allMethods, methodSign)
 											if receiver.scanMethod(methodSign) {
-												methodSigns = append(methodSigns, methodSign)
+												targetMethods = append(targetMethods, methodSign)
+											} else {
+												otherMethods = append(otherMethods, methodSign)
 											}
 										}
 									}
 								}
 							}
-							proxyTarget.Methods = methodSigns
+							proxyTarget.TargetMethods = targetMethods
+							proxyTarget.AllMethods = allMethods
+							proxyTarget.OtherMethods = otherMethods
 							receiver.Targets = append(receiver.Targets, &proxyTarget)
 						}
 					}
@@ -184,21 +195,30 @@ func (receiver *StructVisitor) setDependImports() {
 		dependImportMap[dependName] = imp
 	}
 
-	dependImports := make([]*ImportInfo, 0)
+	allDependImports := make([]*ImportInfo, 0)
 	for _, target := range receiver.Targets {
-		targetDependImports := make([]*ImportInfo, 0)
-		for _, method := range target.Methods {
+		structDependImports := make([]*ImportInfo, 0)
+		for _, method := range target.AllMethods {
+			methodDependImports := make([]*ImportInfo, 0)
 			for _, flag := range method.DependFlags {
 				if info, ok := dependImportMap[flag]; ok {
-					targetDependImports = append(targetDependImports, info)
-					dependImports = append(dependImports, info)
+					if !slices.Contains(methodDependImports, info) {
+						methodDependImports = append(methodDependImports, info)
+						if !slices.Contains(structDependImports, info) {
+							structDependImports = append(structDependImports, info)
+							if !slices.Contains(allDependImports, info) {
+								allDependImports = append(allDependImports, info)
+							}
+						}
+					}
 				}
 			}
+			method.DependImports = methodDependImports
 		}
-		target.DependImports = dependImports
+		target.DependImports = allDependImports
 	}
 
-	receiver.DependImports = dependImports
+	receiver.DependImports = allDependImports
 }
 
 func parserMethod(funcType *ast.FuncType) *MethodSignature {
