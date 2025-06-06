@@ -7,11 +7,20 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
-	"html/template"
 	"os"
 	"regexp"
 	"slices"
 	"strings"
+	"text/template"
+)
+
+const (
+	StructFlag          = "StructInfo"
+	DependImportsFlag   = "DependImports"
+	PkgFlag             = "Pkg"
+	OtherMethodsFlag    = "OtherMethods"
+	MethodSignatureTemp = "{{$method.Name}}({{range $i, $param := $method.Params}}{{if gt $i 0}},{{end}}{{$param.Name}} {{if $param.IsPointer}}*{{end}}{{$param.TypeName}}{{end}}) ({{range $i, $param := $method.Results}}{{if gt $i 0}},{{end}}{{$param.Name}} {{if $param.IsPointer}}*{{end}}{{$param.TypeName}}{{end}})"
+	MethodCallTemp      = "{{$method.Name}}({{range $i, $param := $method.Params}}{{if gt $i 0}},{{end}}{{$param.Name}} {{end}})"
 )
 
 type ScanStruct func(signature *StructInfo) bool
@@ -90,6 +99,8 @@ type MethodSignature struct {
 	Results       []*ParamSignature
 	DependFlags   []string
 	DependImports []*ImportInfo
+	CtxParamName  *string
+	ReturnErr     bool
 }
 
 type ParamSignature struct {
@@ -222,11 +233,15 @@ func (receiver *StructVisitor) setDependImports() {
 }
 
 func parserMethod(funcType *ast.FuncType) *MethodSignature {
+	signature := MethodSignature{}
 	dependFlags := make([]string, 0)
 	params := funcType.Params
 	paramSignatures := make([]*ParamSignature, len(params.List))
 	for i, param := range params.List {
 		paramSign, depend := parserParam(param)
+		if paramSign.TypeName == "context.Context" {
+			signature.CtxParamName = &paramSign.Name
+		}
 		paramSignatures[i] = paramSign
 		if depend != nil {
 			dependFlags = append(dependFlags, *depend)
@@ -237,16 +252,19 @@ func parserMethod(funcType *ast.FuncType) *MethodSignature {
 	resultSignatures := make([]*ParamSignature, len(results.List))
 	for i, result := range results.List {
 		paramSign, depend := parserParam(result)
+		if paramSign.TypeName == "error" {
+			signature.ReturnErr = true
+		}
 		resultSignatures[i] = paramSign
 		if depend != nil {
 			dependFlags = append(dependFlags, *depend)
 		}
 	}
-	return &MethodSignature{
-		Params:      paramSignatures,
-		Results:     resultSignatures,
-		DependFlags: dependFlags,
-	}
+
+	signature.Params = paramSignatures
+	signature.Results = resultSignatures
+	signature.DependFlags = dependFlags
+	return &signature
 }
 
 func parserParam(param *ast.Field) (paramSign *ParamSignature, depend *string) {
@@ -290,8 +308,29 @@ func parserExpr(typeName0 string, paramType ast.Expr) (typeName string, isPointe
 		typeName0 += "[]"
 		typeName, _, depend = parserExpr(typeName0, arrType.Elt)
 		break
+	case *ast.MapType:
+		mapType := paramType.(*ast.MapType)
+		typeName, _, depend = parserExpr("map[", mapType.Key)
+		typeName += "]"
+		typeName, _, depend = parserExpr(typeName, mapType.Value)
+		break
 	default:
 		panic(fmt.Sprintf("unknown param type:%v", paramType))
 	}
 	return
+}
+
+func ExeTemplate(tmp *template.Template, env any) []byte {
+	// gen src with env
+	buff := bytes.NewBufferString("")
+	err := tmp.Execute(buff, env)
+	if err != nil {
+		panic(err)
+	}
+	//格式化
+	source, err := format.Source(buff.Bytes())
+	if err != nil {
+		panic(err)
+	}
+	return source
 }

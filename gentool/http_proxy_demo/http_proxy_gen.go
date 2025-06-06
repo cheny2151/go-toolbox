@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/cheny2151/go-toolbox/gen/visitor"
+	"github.com/cheny2151/go-toolbox/gentool/visitor"
 	"strings"
 )
 

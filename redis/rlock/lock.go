@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	keyPre        = "TOOLBOX"
 	lockChannel   = "TOOLBOX:LOCK_CHANNEL:"
 	lockIdKey     = "lock_id"
 	useLeaseKey   = "use_lease"
@@ -18,12 +19,12 @@ const (
 )
 
 type RLock interface {
-	tryLock(ctx context.Context, waitTime, leaseTime time.Duration) (context.Context, bool, error)
-	unlock(ctx context.Context) error
+	TryLock(ctx context.Context, waitTime, leaseTime time.Duration) (context.Context, bool, error)
+	Unlock(ctx context.Context) error
 }
 
 type LockSupport interface {
-	buildPath(hash, path string) string
+	buildPath(base, hash string) string
 	eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
 	expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 	subUnlock(channel string)
@@ -79,8 +80,8 @@ func (lk *BaseLock) initListener() {
 	}()
 }
 
-func (lk *BaseLock) buildPath(hash, key string) string {
-	return "{" + hash + "}:" + key
+func (lk *BaseLock) buildPath(base, hash string) string {
+	return fmt.Sprintf("%s:%s:{%s}", keyPre, base, hash)
 }
 
 func (lk *BaseLock) eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
@@ -173,7 +174,7 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 func (lk *BaseLock) unlock0(ctx context.Context, argsFunc unlockArgs) error {
 	value := ctx.Value(lockIdKey)
 	if value == nil {
-		return errors.New("can not find lockId in context, please use tryLock returned context")
+		return errors.New("can not find lockId in context, please use TryLock returned context")
 	}
 	lockId := value.(string)
 	path, unlockLua, keys, argv := argsFunc(lockId)
@@ -193,8 +194,6 @@ func (lk *BaseLock) unlock0(ctx context.Context, argsFunc unlockArgs) error {
 		if useLease != nil && useLease.(bool) {
 			lk.leaseHolder.removeLease(path)
 		}
-		// 解锁成功
-		fmt.Println("unlock")
 	}
 	return nil
 }

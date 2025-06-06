@@ -21,3 +21,18 @@ func ArrayToMap[K maptool.KEY, T any](arr []T, keyFunc func(ele T) K) map[K]T {
 	}
 	return m
 }
+
+func Distinct[T comparable](arr []T) []T {
+	if arr == nil || len(arr) == 1 {
+		return arr
+	}
+	result := make([]T, 0, len(arr))
+	cache := make(map[T]bool)
+	for _, e := range arr {
+		if _, ok := cache[e]; !ok {
+			result = append(result, e)
+			cache[e] = true
+		}
+	}
+	return result
+}

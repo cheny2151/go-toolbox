@@ -64,31 +64,33 @@ func TestLock(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		group.Add(1)
 		go func() {
-			ctx, locked, err := lock.tryLock(context.Background(), 100*time.Second, 10*time.Minute)
+			ctx, locked, err := lock.TryLock(context.Background(), 100*time.Second, 10*time.Minute)
 			if err != nil {
 				t.Errorf("trylock error: %v\n", err)
 			}
 			time.Sleep(3 * time.Second)
 			if locked {
 				fmt.Println("locked success")
-				err = lock.unlock(ctx)
+				err = lock.Unlock(ctx)
 				if err != nil {
-					t.Errorf("unlock error: %v\n", err)
+					t.Errorf("Unlock error: %v\n", err)
+				} else {
+					fmt.Println("unlocked success")
 				}
 			}
 			group.Done()
 		}()
 	}
 	time.Sleep(3 * time.Second)
-	ctx, locked, err := lock.tryLock(context.Background(), 100*time.Second, 10*time.Minute)
+	ctx, locked, err := lock.TryLock(context.Background(), 100*time.Second, 10*time.Minute)
 	if err != nil {
 		t.Errorf("trylock error: %v\n", err)
 	}
 	if locked {
 		fmt.Println("locked success")
-		err = lock.unlock(ctx)
+		err = lock.Unlock(ctx)
 		if err != nil {
-			t.Errorf("unlock error: %v\n", err)
+			t.Errorf("Unlock error: %v\n", err)
 		}
 	}
 	group.Wait()

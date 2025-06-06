@@ -49,7 +49,7 @@ type ReentrantLock struct {
 	path string
 }
 
-func (rl *ReentrantLock) tryLock(ctx context.Context, waitTime, leaseTime time.Duration) (context.Context, bool, error) {
+func (rl *ReentrantLock) TryLock(ctx context.Context, waitTime, leaseTime time.Duration) (context.Context, bool, error) {
 	return rl.tryLock0(ctx, waitTime, leaseTime, rl.lockArgs)
 }
 
@@ -61,7 +61,7 @@ func (rl *ReentrantLock) lockArgs(_, leaseTime time.Duration, lockId string) (pa
 	return
 }
 
-func (rl *ReentrantLock) unlock(ctx context.Context) error {
+func (rl *ReentrantLock) Unlock(ctx context.Context) error {
 	return rl.unlock0(ctx, rl.unlockArgs)
 }
 
