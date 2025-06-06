@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"log"
 	"time"
 )
 
@@ -28,24 +29,27 @@ type LockSupport interface {
 	eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
 	expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd
 	subUnlock(channel string)
-	addListener(key string, lst unlockListener)
+	addListener(key string, lst *unlockListener)
 	tryLock0(ctx context.Context, waitTime, leaseTime time.Duration, argsFunc lockArgs) (context.Context, bool, error)
 	unlock0(ctx context.Context, argsFunc unlockArgs) error
 	close()
 }
 
-type unlockListener func(channel, msg string)
+type unlockListener struct {
+	action  func(channel, msg string)
+	timeout bool
+}
 
 type lockArgs func(waitTime, leaseTime time.Duration, lockId string) (path, lua string, keys []string, argv []any)
 type unlockArgs func(lockId string) (path, lua string, keys []string, argv []any)
 
 type UnlockListeners struct {
-	listeners []unlockListener
+	listeners []*unlockListener
 }
 
 type UnlockListenerAction struct {
 	key    string
-	lst    unlockListener
+	lst    *unlockListener
 	action byte
 }
 
@@ -61,6 +65,11 @@ func (lk *BaseLock) initListener() {
 	lk.actionChan = make(chan UnlockListenerAction)
 	lk.unlockListeners = make(map[string]*UnlockListeners)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Default().Printf("recover lock listener, err:%v", r)
+			}
+		}()
 		for lk.closed == false {
 			action := <-lk.actionChan
 			key := action.key
@@ -70,8 +79,13 @@ func (lk *BaseLock) initListener() {
 			case 1:
 				if listeners, ok := lk.unlockListeners[key]; ok {
 					listeners.listeners = append(listeners.listeners, action.lst)
+					for i, listener := range listeners.listeners {
+						if listener != nil && listener.timeout {
+							listeners.listeners[i] = nil
+						}
+					}
 				} else {
-					listenerArr := make([]unlockListener, 1)
+					listenerArr := make([]*unlockListener, 1)
 					listenerArr[0] = action.lst
 					lk.unlockListeners[key] = &UnlockListeners{listenerArr}
 				}
@@ -107,14 +121,16 @@ func (lk *BaseLock) subUnlock(channel string) {
 				// 为了保证listener不丢失：actionChan设置为无缓冲，确保消费了action: 0的操作（即删除map中的key）后才消费listeners
 				lk.actionChan <- UnlockListenerAction{key: key, lst: nil, action: 0}
 				for _, listener := range listeners.listeners {
-					listener(channel, key)
+					if listener != nil {
+						listener.action(channel, key)
+					}
 				}
 			}
 		}
 	}()
 }
 
-func (lk *BaseLock) addListener(key string, lst unlockListener) {
+func (lk *BaseLock) addListener(key string, lst *unlockListener) {
 	lk.actionChan <- UnlockListenerAction{key: key, lst: lst, action: 1}
 }
 
@@ -148,12 +164,16 @@ func (lk *BaseLock) tryLock0(ctx context.Context, waitTime, leaseTime time.Durat
 		if endTime >= nowMilli {
 			done := make(chan struct{}, 1)
 			dur := time.Millisecond * time.Duration(endTime-nowMilli)
-			lk.addListener(path, func(channel, msg string) {
-				done <- struct{}{}
-				close(done)
-			})
+			listener := unlockListener{
+				action: func(channel, msg string) {
+					done <- struct{}{}
+					close(done)
+				},
+			}
+			lk.addListener(path, &listener)
 			select {
 			case <-time.After(dur):
+				listener.timeout = true
 			case <-done:
 			}
 		} else {

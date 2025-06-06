@@ -2,6 +2,7 @@ package rlock
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 )
@@ -83,6 +84,11 @@ func (lh *LeaseHolder) removeLease(key string) {
 func (lh *LeaseHolder) initScheduled() {
 	lh.once.Do(func() {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Default().Printf("recover lease scheduled, err:%v", r)
+				}
+			}()
 			ctx := context.Background()
 			for !lh.closed {
 				select {
