@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/cheny2151/go-toolbox/slicetool"
 	"github.com/redis/go-redis/v9"
-	"log"
 	"sync"
 	"time"
 )
@@ -237,14 +237,14 @@ func (help CacheHelp[T]) SetNewVersion(ctx context.Context, key string, version 
 	cmd := rdb.EvalSha(ctx, setVerSha1, []string{key}, version, help.CacheExpire)
 	r, err := cmd.Int()
 	if err != nil {
-		log.Default().Printf("设置最新版本失败:%v", err)
+		fmt.Printf("设置最新版本失败:%v", err)
 		return err
 	}
 	success := r == 0
 	if !success {
-		log.Default().Printf("设置最新版本结果, key:%s, version:%v, success:%v, newest_version:%v", key, version, success, r)
+		fmt.Printf("设置最新版本结果, key:%s, version:%v, success:%v, newest_version:%v\n", key, version, success, r)
 	} else {
-		log.Default().Printf("设置最新版本结果, key:%s, version:%v, success:%v", key, version, success)
+		fmt.Printf("设置最新版本结果, key:%s, version:%v, success:%v\n", key, version, success)
 	}
 	return nil
 }
@@ -262,7 +262,7 @@ func (help CacheHelp[T]) mgetCache(ctx context.Context, keys []string, unMarshal
 	}
 	caches, err := help.getCache0(ctx, keys)
 	if err != nil {
-		log.Default().Printf("获取redis缓存异常:%v", err)
+		fmt.Printf("获取redis缓存异常:%v", err)
 		return nil, err
 	} else {
 		results := make([]*CacheResult[T], klen)
@@ -275,7 +275,7 @@ func (help CacheHelp[T]) mgetCache(ctx context.Context, keys []string, unMarshal
 			} else if cache != "" {
 				data, err := unMarshalCache(cache)
 				if err != nil {
-					log.Default().Printf("获取redis缓存，反序列化异常:%s", err)
+					fmt.Printf("获取redis缓存，反序列化异常:%s\n", err)
 				} else {
 					result.Data = data
 					result.OK = true
@@ -320,7 +320,7 @@ func (help CacheHelp[T]) executeAndCache(ctx context.Context, keys []string, mar
 		if result != nil {
 			marshal, err := marshalCache(result)
 			if err != nil {
-				log.Default().Printf("缓存redis，json序列化异常:%s", err)
+				fmt.Printf("缓存redis，json序列化异常:%s\n", err)
 			} else {
 				version = (*result).GetVersion()
 				data = string(marshal)
@@ -342,11 +342,11 @@ func (help CacheHelp[T]) tryLockToExecute(ctx context.Context, keys []string,
 	loadKeys, err := help.tryMultiLocks(ctx, keys)
 	if err != nil {
 		// 获取锁异常，降级直接读库
-		log.Default().Printf("获取分布式锁异常, key:%v, err:%v", keys, err)
+		fmt.Printf("获取分布式锁异常, key:%v, err:%v\n", keys, err)
 		loadKeys = keys
 	} else if len(loadKeys) > 0 {
 		// double check cache
-		log.Default().Printf("获取分布式锁成功，执行实际查询, key:%v", loadKeys)
+		fmt.Printf("获取分布式锁成功，执行实际查询, key:%v\n", loadKeys)
 		caches, err := help.executeAndCache(ctx, loadKeys, marshalCache, fetchDatesFunc)
 		if err != nil {
 			return err
@@ -369,12 +369,12 @@ func (help CacheHelp[T]) tryLockToExecute(ctx context.Context, keys []string,
 		}
 		ctx0, cancelFunc := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 		defer cancelFunc()
-		log.Default().Printf("轮询获取waitKeys缓存:%v", waitKeys)
+		fmt.Printf("轮询获取waitKeys缓存:%v", waitKeys)
 		for {
-			log.Default().Printf("轮询获取waitKeys缓存中...", waitKeys)
+			fmt.Printf("轮询获取waitKeys缓存中..., keys:%v", waitKeys)
 			caches, err := help.mgetCache(ctx, waitKeys, unMarshalCache)
 			if err != nil {
-				log.Default().Printf("轮询获取缓存异常:%v", err)
+				fmt.Printf("轮询获取缓存异常:%v", err)
 			} else {
 				nextWaitKeys := make([]string, 0, len(waitKeys))
 				for i := range caches {
@@ -387,14 +387,14 @@ func (help CacheHelp[T]) tryLockToExecute(ctx context.Context, keys []string,
 					}
 				}
 				if len(nextWaitKeys) == 0 {
-					log.Default().Println("完成轮询获取waitKeys缓存")
+					fmt.Println("完成轮询获取waitKeys缓存")
 					break
 				}
 				waitKeys = nextWaitKeys
 			}
 			select {
 			case <-ctx0.Done():
-				log.Default().Println("轮询获取waitKeys缓存超时")
+				fmt.Println("轮询获取waitKeys缓存超时")
 				return ctx0.Err()
 			case <-time.After(100 * time.Millisecond):
 			}
@@ -409,11 +409,11 @@ func (help CacheHelp[T]) getCache0(ctx context.Context, keys []string) ([]string
 	cmd := rdb.EvalSha(ctx, mgetLuaSha1, keys)
 	results, err := cmd.Slice()
 	if err != nil {
-		log.Default().Printf("获取缓存失败%v", err)
+		fmt.Printf("获取缓存失败%v", err)
 		return nil, err
 	}
 	if len(keys) != len(results) {
-		log.Default().Printf("获取缓存失败, 输入输出长度不匹配:%s", err)
+		fmt.Printf("获取缓存失败, 输入输出长度不匹配:%s\n", err)
 		return nil, errors.New("fail to get cache")
 	}
 	values := make([]string, len(keys))
@@ -436,7 +436,7 @@ func (help CacheHelp[T]) asyncSetCache(cacheInfos []*cacheable) {
 		ctx := context.Background()
 		defer func() {
 			if r := recover(); r != nil {
-				log.Default().Printf("异步设置缓存异常:%v", r)
+				fmt.Printf("异步设置缓存异常:%v", r)
 			}
 			initLua()
 			now := time.Now()
@@ -452,19 +452,19 @@ func (help CacheHelp[T]) asyncSetCache(cacheInfos []*cacheable) {
 						r, err := cmd.Int()
 						info := cacheInfos[i]
 						if err != nil {
-							log.Default().Printf("设置缓存失败:%v", err)
+							fmt.Printf("设置缓存失败:%v\n", err)
 							continue
 						}
 						success := r == 0
 						if !success {
-							log.Default().Printf("设置缓存结果, key:%s, version:%v, success:%v, newest_version:%v", info.key, info.version, success, r)
+							fmt.Printf("设置缓存结果, key:%s, version:%v, success:%v, newest_version:%v\n", info.key, info.version, success, r)
 						} else {
-							log.Default().Printf("设置缓存结果, key:%s, version:%v, success:%v", info.key, info.version, success)
+							fmt.Printf("设置缓存结果, key:%s, version:%v, success:%v\n", info.key, info.version, success)
 						}
 					}
 				}
 			}
-			log.Default().Printf("缓存设置耗时, time:%v, size:%v", time.Now().UnixMilli()-now.UnixMilli(), len(cacheInfos))
+			fmt.Printf("缓存设置耗时, time:%v, size:%v\n", time.Now().UnixMilli()-now.UnixMilli(), len(cacheInfos))
 		}()
 	}()
 }
@@ -482,7 +482,7 @@ func (help CacheHelp[T]) tryMultiLocks(ctx context.Context, keys []string) ([]st
 	cmd := rdb.EvalSha(ctx, multiLockSha1, locks, timeout)
 	results, err := cmd.Slice()
 	if err != nil {
-		log.Default().Printf("tryMultiLocks失败:%v", err)
+		fmt.Printf("tryMultiLocks失败:%v", err)
 		return nil, err
 	}
 	successKeys := make([]string, 0, len(keys))

@@ -2,9 +2,11 @@ package featurekey
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"testing"
+	"time"
 )
 
 type data struct {
@@ -63,14 +65,24 @@ func TestCacheWrap(t *testing.T) {
 	demo := DataServiceDemo{}
 	wrap := DataServiceCacheWrap{DataService: &demo}
 	fetchData, err := wrap.FetchData(context.Background(), []string{"a", "b"})
-	fmt.Println(fetchData, err)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	marshal, _ := json.Marshal(fetchData)
+	fmt.Println(string(marshal), err)
+	time.Sleep(2 * time.Second)
 }
 
 func getRdb() redis.UniversalClient {
 	rdb := redis.NewFailoverClient(&redis.FailoverOptions{
-		MasterName:    "",
-		SentinelAddrs: []string{""},
-		DB:            15,
+		MasterName: "knowledge_transtion_redis_test_001",
+		SentinelAddrs: []string{
+			"shopline-fs-test-group001-sentinel.inshopline.com:20010",
+			"shopline-fs-test-group002-sentinel.inshopline.com:20010",
+			"shopline-fs-test-group003-sentinel.inshopline.com:20010",
+		},
+		DB: 15,
 	})
 	err := rdb.Ping(context.Background()).Err()
 	if err != nil {
