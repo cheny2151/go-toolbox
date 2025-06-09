@@ -1,6 +1,9 @@
 package slicetool
 
-import "github.com/cheny2151/go-toolbox/maptool"
+import (
+	"github.com/cheny2151/go-toolbox/maptool"
+	"slices"
+)
 
 // TakeValues 数组元素指针转为数组元素值并返回元素值数组
 func TakeValues[T any](points []*T) []T {
@@ -32,6 +35,17 @@ func Distinct[T comparable](arr []T) []T {
 		if _, ok := cache[e]; !ok {
 			result = append(result, e)
 			cache[e] = true
+		}
+	}
+	return result
+}
+
+func Subtract[E comparable](arr []E, sub []E) []E {
+	result := make([]E, 0)
+	for i := range sub {
+		e := sub[i]
+		if !slices.Contains(arr, e) {
+			result = append(result, e)
 		}
 	}
 	return result
