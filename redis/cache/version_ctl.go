@@ -44,11 +44,11 @@ local verk = hk .. '_ver'
 		return -1
 	end
 	if (tonumber(ARGV[1]) >= ver) then
-		redis.call('set', verk, ARGV[1])
-		redis.call('hmset', hk, 'v', ARGV[1], 'd', ARGV[2])
+		redis.pcall('set', verk, ARGV[1])
+		redis.pcall('hmset', hk, 'v', ARGV[1], 'd', ARGV[2])
 		if (tonumber(ARGV[3]) > 0) then
-			redis.call('expire', hk, ARGV[3])
-			redis.call('expire', verk, ARGV[3])
+			redis.pcall('expire', hk, ARGV[3])
+			redis.pcall('expire', verk, ARGV[3])
 		end
 		return 0
 	end
@@ -80,7 +80,7 @@ for i,val in ipairs(vals) do
 	end
 end
 for i,k in ipairs(locks) do
-	redis.call('set', k, 1, 'EX', ARGV[1])
+	redis.pcall('set', k, 1, 'EX', ARGV[1])
 end
 return locks
 `
