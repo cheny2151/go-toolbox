@@ -347,7 +347,7 @@ func (help CacheHelp[T]) tryLockToExecute(ctx context.Context, keys []string,
 	}
 	if len(loadKeys) > 0 {
 		// double check cache
-		fmt.Printf("获取分布式锁成功，执行实际查询, key:%v\n", loadKeys)
+		fmt.Printf("执行实际查询, key:%v\n", loadKeys)
 		caches, err := help.executeAndCache(ctx, loadKeys, marshalCache, fetchDatesFunc)
 		if err != nil {
 			return err
