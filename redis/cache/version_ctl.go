@@ -344,7 +344,8 @@ func (help CacheHelp[T]) tryLockToExecute(ctx context.Context, keys []string,
 		// 获取锁异常，降级直接读库
 		fmt.Printf("获取分布式锁异常, key:%v, err:%v\n", keys, err)
 		loadKeys = keys
-	} else if len(loadKeys) > 0 {
+	}
+	if len(loadKeys) > 0 {
 		// double check cache
 		fmt.Printf("获取分布式锁成功，执行实际查询, key:%v\n", loadKeys)
 		caches, err := help.executeAndCache(ctx, loadKeys, marshalCache, fetchDatesFunc)
