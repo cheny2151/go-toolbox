@@ -216,7 +216,7 @@ func (help CacheHelp[T]) DoMultiProxy(ctx context.Context, getKeys func() []stri
 		missKeys = keys
 	}
 
-	if missKeys != nil && len(missKeys) > 0 {
+	if len(missKeys) > 0 {
 		err = help.tryLockToExecute(ctx, missKeys, marshalCache, unMarshalCache, fetchDatesFunc, setResult)
 	}
 
@@ -363,7 +363,7 @@ func (help CacheHelp[T]) tryLockToExecute(ctx context.Context, keys []string,
 	}
 
 	// 获取锁失败，尝试从缓存获取直至完成或超时
-	if waitKeys != nil && len(waitKeys) > 0 {
+	if len(waitKeys) > 0 {
 		timeout := help.WaitTimeout
 		if timeout <= 0 {
 			timeout = 10
@@ -447,21 +447,19 @@ func (help CacheHelp[T]) asyncSetCache(cacheInfos []*cacheable) {
 				}
 				return nil
 			})
-			if pipelined != nil {
-				for i, cmder := range pipelined {
-					if cmd, ok := cmder.(*redis.Cmd); ok {
-						r, err := cmd.Int()
-						info := cacheInfos[i]
-						if err != nil {
-							fmt.Printf("设置缓存失败:%v\n", err)
-							continue
-						}
-						success := r == 0
-						if !success {
-							fmt.Printf("设置缓存结果, key:%s, version:%v, success:%v, newest_version:%v\n", info.key, info.version, success, r)
-						} else {
-							fmt.Printf("设置缓存结果, key:%s, version:%v, success:%v\n", info.key, info.version, success)
-						}
+			for i, cmder := range pipelined {
+				if cmd, ok := cmder.(*redis.Cmd); ok {
+					r, err := cmd.Int()
+					info := cacheInfos[i]
+					if err != nil {
+						fmt.Printf("设置缓存失败:%v\n", err)
+						continue
+					}
+					success := r == 0
+					if !success {
+						fmt.Printf("设置缓存结果, key:%s, version:%v, success:%v, newest_version:%v\n", info.key, info.version, success, r)
+					} else {
+						fmt.Printf("设置缓存结果, key:%s, version:%v, success:%v\n", info.key, info.version, success)
 					}
 				}
 			}
