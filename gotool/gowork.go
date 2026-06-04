@@ -2,7 +2,6 @@ package gotool
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -69,7 +68,7 @@ func (executor GoExecutor[T]) AsyncGo(ctx context.Context, task func(context.Con
 					if err0, ok := r.(error); ok {
 						ar.Err = err0
 					} else {
-						ar.Err = errors.New(fmt.Sprintf("task panic:%v", r))
+						ar.Err = fmt.Errorf("task panic:%v", r)
 					}
 				}
 				<-executor.semaphore
@@ -80,7 +79,7 @@ func (executor GoExecutor[T]) AsyncGo(ctx context.Context, task func(context.Con
 		}()
 	case <-ctx.Done():
 		rschan <- &AsyncResult[T]{
-			Err: errors.New("semaphore acquire timeout"),
+			Err: ctx.Err(),
 		}
 	}
 
@@ -143,7 +142,7 @@ func (executor GoSliceExecutor[I, O]) AsyncGo(ctx context.Context, inputs []I, t
 	for i, input := range inputs {
 		select {
 		case executor.semaphore <- token{}:
-			go func(idx int, input *I) {
+			go func(idx int, input I) {
 				ar := AsyncResultWithIndex[O]{
 					Index: idx,
 				}
@@ -152,19 +151,19 @@ func (executor GoSliceExecutor[I, O]) AsyncGo(ctx context.Context, inputs []I, t
 						if err0, ok := r.(error); ok {
 							ar.Err = err0
 						} else {
-							ar.Err = errors.New(fmt.Sprintf("task panic:%v", r))
+							ar.Err = fmt.Errorf("task panic:%v", r)
 						}
 					}
 					<-executor.semaphore
 					archan <- &ar
 				}()
-				output := task(ctx, *input)
+				output := task(ctx, input)
 				ar.V = &output
-			}(i, &input)
+			}(i, input)
 		case <-ctx.Done():
 			archan <- &AsyncResultWithIndex[O]{
 				AsyncResult: AsyncResult[O]{
-					Err: errors.New("semaphore acquire timeout"),
+					Err: ctx.Err(),
 				},
 				Index: i,
 			}
