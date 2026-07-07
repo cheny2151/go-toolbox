@@ -143,9 +143,7 @@ func (executor GoSliceExecutor[I, O]) AsyncGo(ctx context.Context, inputs []I, t
 		select {
 		case executor.semaphore <- token{}:
 			go func(idx int, input I) {
-				ar := AsyncResultWithIndex[O]{
-					Index: idx,
-				}
+				var ar AsyncResultWithIndex[O]
 				defer func() {
 					if r := recover(); r != nil {
 						if err0, ok := r.(error); ok {
@@ -157,6 +155,9 @@ func (executor GoSliceExecutor[I, O]) AsyncGo(ctx context.Context, inputs []I, t
 					<-executor.semaphore
 					archan <- &ar
 				}()
+				ar = AsyncResultWithIndex[O]{
+					Index: idx,
+				}
 				output := task(ctx, input)
 				ar.V = &output
 			}(i, input)
