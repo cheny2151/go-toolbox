@@ -2,6 +2,7 @@ package gotool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -43,7 +44,7 @@ func (executor GoExecutor[T]) Go(ctx context.Context, task func(context.Context)
 		err = ctx.Err()
 	case rs := <-archan:
 		if rs.Err != nil {
-			err = rs.Err
+			err = errors.Join(err, rs.Err)
 		} else {
 			result = rs.V
 		}
@@ -118,7 +119,7 @@ out:
 			break out
 		case rs := <-archan:
 			if rs.Err != nil {
-				err = rs.Err
+				err = errors.Join(err, rs.Err)
 			} else {
 				results0[rs.Index] = *rs.V
 			}
